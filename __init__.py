@@ -21,12 +21,13 @@ bl_info = {
     "version" : (0, 0, 1),
     "location" : "View3D > Vertex > Copy Vertex Properties",
     "warning" : "",
-    "category" : "Generic"
+    "category" : "Vertex"
 }
 
 import bpy
 from pprint import pprint
 import bmesh
+import mathutils
 
 class VertexCopyProperties(bpy.types.Operator):
     """Copy Vertex Properties"""
@@ -34,9 +35,10 @@ class VertexCopyProperties(bpy.types.Operator):
     bl_label = "Copy Properties"
     bl_options = {'REGISTER', 'UNDO'}
 
-    copyTransform: bpy.props.BoolProperty(name="Transform",description="Copy the active vertex transform to children.",default=True)
-    copyShapeKeys: bpy.props.BoolProperty(name="Shape Keys",description="Copy the active vertex shapekeys to children.",default=True)
-    copyWeights: bpy.props.BoolProperty(name="Weights",description="Copy the active vertex weights to children.",default=True)
+    copyTransform: bpy.props.BoolProperty(name="Transform",description="Copy the active vertex transform to children.",default=False)
+    copyNormals: bpy.props.BoolProperty(name="Normals",description="Copy the normal of the vertex to children.",default=False)
+    copyShapeKeys: bpy.props.BoolProperty(name="Shape Keys",description="Copy the active vertex shapekeys to children.",default=False)
+    copyWeights: bpy.props.BoolProperty(name="Weights",description="Copy the active vertex weights to children.",default=False)
     
 
     def execute(self, context):
@@ -44,49 +46,61 @@ class VertexCopyProperties(bpy.types.Operator):
         cursor = scene.cursor.location
         if context.active_object is None:
             return quit_and_end_context(self,"Must have an object selected.")
-            
+        if context.active_object.mode != 'EDIT':
+            return quit_and_end_context(self,"Must be in edit mode.")
+        if context.active_object.type != 'MESH':
+            return quit_and_end_context(self,"Object selected is not a mesh.")
         obj = context.active_object
+        # obj = context.active_object
         if obj.data is None:
             return quit_and_end_context(self,"Must have an mesh selected.")
         mesh = obj.data
-        if mesh.mode.is_editmode==False:
+        if mesh.is_editmode==False:
             return quit_and_end_context(self,"Mesh must be in edit mode.")
         bmeshData = bmesh.from_edit_mesh(mesh)
         if bmeshData is None:
-            return quit_and_end_context(self,"")
-        n = 0
-        activeVert = None
-        selectedVerts = []
-        if len(bmeshData.select_history) < 2:
-            return quit_and_end_context(self,"Must have more than 2 vertices selected.")
+            return quit_and_end_context(self,"Mesh must have vertices.")
+        
+        activeVert = None        
         for vert in reversed(bmeshData.select_history):
             if isinstance(vert,bmesh.types.BMVert):
-                if n == 0:
-                    activeVert = vert
-                if n > 0:
+                activeVert = vert
+                break
+        if activeVert == None:
+            return quit_and_end_context(self,"No active vertex.")
+
+        selectedVerts = []
+        normals = []
+
+        #pre manipulations
+        if self.copyNormals:
+            mesh.calc_normals_split()
+        for vert in bmeshData.verts:
+            if vert.select:
+                normals.append(activeVert.normal.copy())
+                if vert != activeVert:
                     selectedVerts.append(vert)
-                n=n+1
-        if (n < 2):
-            return quit_and_end_context(self,"Must have more than 2 vertices selected.")
+            else:
+                normals.append(vert.normal.copy())
+        if len(selectedVerts) < 1:
+            return quit_and_end_context(self,"Must have more than 2 vertices selected (b).")
 
-        #pprint(dir(context.active_object))
-        #pprint(dir(context.selected_objects[0]))
+        #begin manipulations
+        for vert in selectedVerts:
+            if self.copyNormals:
+                vert.normal = activeVert.normal.copy()
+            if self.copyTransform:
+                vert.co = activeVert.co
+            if self.copyShapeKeys:
+                print ("Copy Shape Keys")
+            if self.copyWeights:
+                print ("Copy weights.")
 
-        
-        # print(obj.data)
-
-        if self.copyTransform == True:
-            print ("Copy Transform")
-        if self.copyShapeKeys == True:
-            print ("Copy Shape Keys")
-        if self.copyWeights == True:
-            print ("Copy weights.")
-
-        # obj_new = obj.copy()
-        # scene.collection.objects.link(obj_new)
-
-        # factor = i / self.total
-        # obj_new.location = (obj.location * factor) + (cursor * (1.0 - factor))
+        # post manipulations:
+        if self.copyNormals:
+            mesh.use_auto_smooth = True
+            mesh.create_normals_split()
+            mesh.normals_split_custom_set_from_vertices(normals)
 
         return {'FINISHED'}
 
@@ -109,13 +123,12 @@ def register():
 
     # handle the keymap
     wm = bpy.context.window_manager
-    # Note that in background mode (no GUI available), keyconfigs are not available either,
-    # so we have to check this to avoid nasty errors in background case.
     kc = wm.keyconfigs.addon
     if kc:
-        km = wm.keyconfigs.addon.keymaps.new(name='Vertex Mode', space_type='EMPTY')
+        km = wm.keyconfigs.addon.keymaps.new(name='Object Mode', space_type='EMPTY')
         kmi = km.keymap_items.new(VertexCopyProperties.bl_idname, 'C', 'PRESS', ctrl=True, shift=True)
         addon_keymaps.append((km, kmi))
+    
 
 def unregister():
     print("unregistered")
