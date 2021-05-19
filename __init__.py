@@ -44,6 +44,7 @@ class VertexCopyProperties(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         cursor = scene.cursor.location
+        #note to self: A requirement of this, is that it needs to also work with multiple selected objects.
         if context.active_object is None:
             return quit_and_end_context(self,"Must have an object selected.")
         if context.active_object.mode != 'EDIT':
@@ -51,7 +52,6 @@ class VertexCopyProperties(bpy.types.Operator):
         if context.active_object.type != 'MESH':
             return quit_and_end_context(self,"Object selected is not a mesh.")
         obj = context.active_object
-        # obj = context.active_object
         if obj.data is None:
             return quit_and_end_context(self,"Must have an mesh selected.")
         mesh = obj.data
