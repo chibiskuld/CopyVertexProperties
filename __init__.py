@@ -12,6 +12,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import addon_utils
+from bmesh.types import BMesh
 
 bl_info = {
     "name" : "Copy Vertex Properties",
@@ -44,80 +45,134 @@ class VertexCopyProperties(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         cursor = scene.cursor.location
-        #note to self: A requirement of this, is that it needs to also work with multiple selected objects.
+
         if context.active_object is None:
             return quit_and_end_context(self,"Must have an object selected.")
-        if context.active_object.mode != 'EDIT':
-            return quit_and_end_context(self,"Must be in edit mode.")
-        if context.active_object.type != 'MESH':
-            return quit_and_end_context(self,"Object selected is not a mesh.")
-        obj = context.active_object
-        if obj.data is None:
-            return quit_and_end_context(self,"Must have an mesh selected.")
-        mesh = obj.data
-        if mesh.is_editmode==False:
-            return quit_and_end_context(self,"Mesh must be in edit mode.")
-        bmeshData = bmesh.from_edit_mesh(mesh)
-        if bmeshData is None:
-            return quit_and_end_context(self,"Mesh must have vertices.")
-        
-        activeVert = None        
-        for vert in reversed(bmeshData.select_history):
-            if isinstance(vert,bmesh.types.BMVert):
-                activeVert = vert
-                break
+
+        meshes = getMeshes(context.selected_objects, context.active_object)
+        if len(meshes)<1:
+            return quit_and_end_context(self,"No meshes selected.")
+
+        activeVert = getActiveVert(meshes[0])
         if activeVert == None:
             return quit_and_end_context(self,"No active vertex.")
 
-        selectedVerts = []
-        normals = []
+        selectedVerts = getSelectedVerts(meshes,activeVert)
 
-        #pre manipulations
+        if len(selectedVerts) < 2:
+            return quit_and_end_context(self,"Must have more than 2 vertices selected.")
+        
+        #pre manipulation
         if self.copyNormals:
-            mesh.calc_normals_split()
-        for vert in bmeshData.verts:
-            if vert.select:
-                normals.append(activeVert.normal.copy())
-                if vert != activeVert:
-                    selectedVerts.append(vert)
-            else:
-                normals.append(vert.normal.copy())
-        if len(selectedVerts) < 1:
-            return quit_and_end_context(self,"Must have more than 2 vertices selected (b).")
+            prepMeshes(meshes)
 
+        #misc reusable variables.
+        coWorld = activeVert[0][2].matrix_world @ activeVert[1].co
         #begin manipulations
         for vert in selectedVerts:
-            if self.copyNormals:
-                vert.normal = activeVert.normal.copy()
-            if self.copyTransform:
-                vert.co = activeVert.co
-            if self.copyShapeKeys:
-                print ("Copy Shape Keys")
-            if self.copyWeights:
-                print ("Copy weights.")
+            if activeVert[1]!=vert[1]:
+                if self.copyTransform:
+                    if activeVert[0][2] != vert[0][2]:
+                        coLocal = vert[0][2].matrix_local @ coWorld
+                        vert[1].co = coLocal
+                    else:
+                        vert[1].co = activeVert[1].co
+                if self.copyNormals:
+                    vert[1].normal = activeVert[1].normal.copy()
+                if self.copyShapeKeys:
+                    print ("Copy Shape Keys")
+                if self.copyWeights:
+                    print ("Copy weights.")
 
-        # post manipulations:
+        #post manipulation
         if self.copyNormals:
-            mesh.use_auto_smooth = True
-            mesh.create_normals_split()
-            mesh.normals_split_custom_set_from_vertices(normals)
+            finalizeNormals(meshes,activeVert)
 
         return {'FINISHED'}
 
+def getMeshes(objs, activeObj):
+    meshes = []
+    for obj in objs:
+        if obj.type != 'MESH':
+            continue
+        if obj.mode != 'EDIT':
+            continue
+        if obj.data is None:
+            continue
+        me = obj.data
+        if me.is_editmode==False:
+            continue
+        bme = bmesh.from_edit_mesh(me)
+        if bme is None:
+            continue
+
+        if obj==activeObj:
+            meshes.insert( 0, (me, bme, obj) )
+        else:
+            meshes.append( (me, bme, obj) )
+    return meshes
+
+def getBMeshes(meshes):
+    bmeshes = []
+    for me in meshes:
+        bmeshes.append(bmesh.from_edit_mesh(me))
+    return bmeshes
+
+# theres currently a bug with active vert, if I select the last vert, in the inactive object, it gets this wrong and everything goes all wonky.
+def getActiveVert(me):
+    activeVert = None
+    for vert in reversed(me[1].select_history):
+        if isinstance(vert,bmesh.types.BMVert):
+            print(me[1])
+            print(vert)
+            return (me, vert)        
+    return None
+    
+def getSelectedVerts(meshes, activeVert):
+    selectedVerts = []
+    selectedVerts.append(activeVert)
+
+    for me in meshes:
+        for vert in me[1].verts:
+            if vert.select:
+                if vert != activeVert:
+                    selectedVerts.append((me,vert))
+    return selectedVerts
+
+
+# Actual Manipulators
+def prepMeshes(meshes):
+    for me in meshes:
+        me[0].calc_normals_split()        
+
+
+def finalizeNormals(meshes, activeVert):
+    for me in meshes:
+        normals = []
+        for vert in me[1].verts:
+            if vert.select: #it probably doesn't need to do this check. normal at this point should equal active Normal.
+                normals.append(activeVert[1].normal.copy())
+            else:
+                normals.append(vert.normal.copy())
+        me[0].use_auto_smooth = True
+        me[0].create_normals_split()
+        me[0].normals_split_custom_set_from_vertices(normals)
+
+
 def quit_and_end_context(self, msg):
-    print ("No active vertex, quit.")
     self.report({'WARNING'}, msg)
-    return {'FINISHED'}
+    return {'CANCELLED'}
+
 
 def menu_func(self, context):
     self.layout.operator(VertexCopyProperties.bl_idname)
+
 
 # store keymaps here to access after registration
 addon_keymaps = []
 
 
 def register():
-    print("registered")
     bpy.utils.register_class(VertexCopyProperties)
     bpy.types.VIEW3D_MT_edit_mesh_vertices.append(menu_func)
 
@@ -131,7 +186,6 @@ def register():
     
 
 def unregister():
-    print("unregistered")
     # Note: when unregistering, it's usually good practice to do it in reverse order you registered.
     # Can avoid strange issues like keymap still referring to operators already unregistered...
     # handle the keymap
