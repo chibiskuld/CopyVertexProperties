@@ -30,6 +30,12 @@ from pprint import pprint
 import bmesh
 import mathutils
 
+# (
+#    mesh(
+#        mesh, bmesh, obj
+#    ), 
+#    bmesh:vert
+#)
 class VertexCopyProperties(bpy.types.Operator):
     """Copy Vertex Properties"""
     bl_idname = "vertex.copy_properties"
@@ -66,15 +72,17 @@ class VertexCopyProperties(bpy.types.Operator):
         if self.copyNormals:
             prepMeshes(meshes)
 
+        print(activeVert)
         #misc reusable variables.
         coWorld = activeVert[0][2].matrix_world @ activeVert[1].co
         #begin manipulations
         for vert in selectedVerts:
             if activeVert[1]!=vert[1]:
                 if self.copyTransform:
-                    if activeVert[0][2] != vert[0][2]:
-                        coLocal = vert[0][2].matrix_local @ coWorld
-                        vert[1].co = coLocal
+                    # if they are not the same object, convert to world space, then back to local space of the verts parent object.
+                    if activeVert[0][2] != vert[0][2]: 
+                        #vert[1].co = vert[0][2].matrix_local @ coWorld
+                        vert[1].co = vert[0][2].matrix_world.inverted() @ coWorld
                     else:
                         vert[1].co = activeVert[1].co
                 if self.copyNormals:
@@ -123,8 +131,6 @@ def getActiveVert(me):
     activeVert = None
     for vert in reversed(me[1].select_history):
         if isinstance(vert,bmesh.types.BMVert):
-            print(me[1])
-            print(vert)
             return (me, vert)        
     return None
     
