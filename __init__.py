@@ -76,6 +76,7 @@ class VertexCopyProperties(bpy.types.Operator):
         #misc reusable variables.
         coWorld = activeVert[0][2].matrix_world @ activeVert[1].co
         #begin manipulations
+
         for vert in selectedVerts:
             if activeVert[1]!=vert[1]:
                 if self.copyTransform:
@@ -88,13 +89,22 @@ class VertexCopyProperties(bpy.types.Operator):
                 if self.copyNormals:
                     vert[1].normal = activeVert[1].normal.copy()
                 if self.copyShapeKeys:
-                    print ("Copy Shape Keys")
+                    if len(meshes)==1:
+                        CopyShapeKeys(activeVert,vert)
                 if self.copyWeights:
                     print ("Copy weights.")
 
         #post manipulation
         if self.copyNormals:
             finalizeNormals(meshes,activeVert)
+
+        #report any issues
+        msg = ""
+        if self.copyShapeKeys:
+            if len(meshes)!=1:
+                msg+= "At the moment, you can only copy shape keys on a single object."
+        if (msg!=""):
+            self.report({'WARNING'}, msg)
 
         return {'FINISHED'}
 
@@ -169,6 +179,12 @@ def quit_and_end_context(self, msg):
     self.report({'WARNING'}, msg)
     return {'CANCELLED'}
 
+def CopyShapeKeys( activeVert, vert ):
+    for key in activeVert[0][1].verts.layers.shape.keys():
+        val = activeVert[0][1].verts.layers.shape.get(key)
+
+        diff = activeVert[1][val] - activeVert[1].co
+        vert[1][val] = vert[1].co + diff
 
 def menu_func(self, context):
     self.layout.operator(VertexCopyProperties.bl_idname)
