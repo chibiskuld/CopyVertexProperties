@@ -72,7 +72,6 @@ class VertexCopyProperties(bpy.types.Operator):
         if self.copyNormals:
             prepMeshes(meshes)
 
-        print(activeVert)
         #misc reusable variables.
         coWorld = activeVert[0][2].matrix_world @ activeVert[1].co
         #begin manipulations
@@ -180,11 +179,18 @@ def quit_and_end_context(self, msg):
     return {'CANCELLED'}
 
 def CopyShapeKeys( activeVert, vert ):
+    vbas = ""
+    abas = ""
     for key in activeVert[0][1].verts.layers.shape.keys():
         val = activeVert[0][1].verts.layers.shape.get(key)
+        if vbas == "":
+            vbas = vert[1][val]
+        if abas == "":
+            abas = activeVert[1][val]
 
-        diff = activeVert[1][val] - activeVert[1].co
-        vert[1][val] = vert[1].co + diff
+        diff = activeVert[1][val] - abas
+        # print( str(key) + ": " + str(diff) )
+        vert[1][val] = vbas + diff
 
 def menu_func(self, context):
     self.layout.operator(VertexCopyProperties.bl_idname)
